@@ -18,30 +18,24 @@ contract TokenTest is Test {
         assertEq(token.totalSupply(), 1_000);
         assertEq(token.balanceOf(alice), 1_000);
     }
+
     function test_TransferMovesBalance() public {
-    vm.prank(alice);
-    token.transfer(bob, 300);
+        vm.prank(alice);
+        token.transfer(bob, 300);
 
-    assertEq(token.balanceOf(alice), 700);
-    assertEq(token.balanceOf(bob), 300);
-    assertEq(token.totalSupply(), 1_000);
+        assertEq(token.balanceOf(alice), 700);
+        assertEq(token.balanceOf(bob), 300);
+        assertEq(token.totalSupply(), 1_000);
     }
-    
+
     function test_TransferRevertsWhenBalanceTooLow() public {
+        vm.expectRevert(abi.encodeWithSelector(Token.InsufficientBalance.selector, 1_000, 1_001));
 
-    vm.expectRevert(
-        abi.encodeWithSelector(
-            Token.InsufficientBalance.selector,
-            1_000,
-            1_001
-        )
-    );
+        vm.prank(alice);
+        token.transfer(bob, 1_001);
 
-    vm.prank(alice);
-    token.transfer(bob, 1_001);
-
-    assertEq(token.balanceOf(alice), 1_000);
-    assertEq(token.balanceOf(bob), 0);
-    assertEq(token.totalSupply(), 1_000);
-}
+        assertEq(token.balanceOf(alice), 1_000);
+        assertEq(token.balanceOf(bob), 0);
+        assertEq(token.totalSupply(), 1_000);
+    }
 }
