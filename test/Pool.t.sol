@@ -204,4 +204,73 @@ contract PoolTest is Test {
         assertEq(token0.balanceOf(address(pool)), pool.reserve0());
         assertEq(token1.balanceOf(address(pool)), pool.reserve1());
     }
+
+    function test_FirstDepositMintsSharesAndLocksMinimum() public {
+        vm.prank(lp);
+        uint256 minted = pool.addLiquidity(1_000, 1_000);
+
+        assertEq(minted, 900);
+        assertEq(pool.shares(lp), 900);
+        assertEq(pool.totalShares(), 1_000);
+
+        assertEq(pool.reserve0(), 1_000);
+        assertEq(pool.reserve1(), 1_000);
+        assertEq(token0.balanceOf(address(pool)), 1_000);
+        assertEq(token1.balanceOf(address(pool)), 1_000);
+    }
+
+    function test_FirstDepositAsymmetric() public {
+        vm.prank(lp);
+        uint256 minted = pool.addLiquidity(1_000, 2_000);
+
+        assertEq(minted, 1_314);
+        assertEq(pool.shares(lp), 1_314);
+        assertEq(pool.totalShares(), 1_414);
+
+        assertEq(pool.reserve0(), 1_000);
+        assertEq(pool.reserve1(), 2_000);
+    }
+
+    function test_SecondDepositProportional() public {
+        _seedPool(1_000, 2_000);
+
+        vm.prank(alice);
+        uint256 minted = pool.addLiquidity(500, 1_000);
+
+        assertEq(minted, 707);
+        assertEq(pool.shares(lp), 1_314);
+        assertEq(pool.shares(alice), 707);
+        assertEq(pool.totalShares(), 2_121);
+
+        assertEq(pool.reserve0(), 1_500);
+        assertEq(pool.reserve1(), 3_000);
+
+        assertEq(token0.balanceOf(address(pool)), pool.reserve0());
+        assertEq(token1.balanceOf(address(pool)), pool.reserve1());
+    }
+
+    function test_UnbalancedDepositGetsFewerShares() public {
+        _seedPool(1_000, 1_000);
+
+        vm.prank(alice);
+        uint256 minted = pool.addLiquidity(500, 100);
+
+        assertEq(minted, 100);
+        assertEq(pool.shares(alice), 100);
+        assertEq(pool.totalShares(), 1_100);
+
+        assertEq(pool.reserve0(), 1_500);
+        assertEq(pool.reserve1(), 1_100);
+    }
+
+    function test_TinyFirstDepositReverts() public {
+        vm.expectRevert(Pool.ZeroShares.selector);
+
+        vm.prank(lp);
+        pool.addLiquidity(10, 10);
+
+        assertEq(pool.totalShares(), 0);
+        assertEq(pool.reserve0(), 0);
+        assertEq(pool.reserve1(), 0);
+    }
 }

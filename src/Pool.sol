@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Token} from "./Token.sol";
+import {Math} from "./Math.sol";
 
 contract Pool {
     Token public immutable token0;
@@ -9,6 +10,11 @@ contract Pool {
 
     uint256 public reserve0;
     uint256 public reserve1;
+
+    uint256 public totalShares;
+    mapping(address => uint256) public shares;
+
+    uint256 private constant MINIMUM_LIQUIDITY = 100;
 
     uint256 private constant FEE_NUMERATOR = 997;
     uint256 private constant FEE_DENOMINATOR = 1000;
@@ -18,8 +24,11 @@ contract Pool {
     error InvalidToken();
     error SlippageExceeded(uint256 got, uint256 min);
     error ZeroOutput();
+    error ZeroShares();
 
     event Swap(address indexed trader, address indexed tokenIn, uint256 amountIn, uint256 amountOut);
+
+    event AddLiquidity(address indexed provider, uint256 amount0, uint256 amount1, uint256 sharesMinted);
 
     constructor(Token _token0, Token _token1) {
         token0 = _token0;
@@ -27,12 +36,50 @@ contract Pool {
     }
 
     /// @dev Bootstrap only. LP shares will be added later.
-    function addLiquidity(uint256 amount0, uint256 amount1) external {
+    function addLiquidity(uint256 amount0, uint256 amount1) external returns (uint256 sharesMinted) {
+        // Checks: both assets must contribute to the deposit.
+        if (amount0 == 0 || amount1 == 0) {
+            revert ZeroShares();
+        }
+
+        if (totalShares == 0) {
+            // First deposit: geometric mean, minus locked shares.
+            uint256 initialShares = Math.sqrt(amount0 * amount1);
+
+            // Avoid underflow and reject deposits that mint no provider shares.
+            if (initialShares <= MINIMUM_LIQUIDITY) {
+                revert ZeroShares();
+            }
+
+            sharesMinted = initialShares - MINIMUM_LIQUIDITY;
+
+            // The total includes both provider shares and the locked 100.
+            totalShares = initialShares;
+            shares[msg.sender] += sharesMinted;
+        } else {
+            // Later deposits must respect the pool's existing proportions.
+            uint256 shares0 = (amount0 * totalShares) / reserve0;
+            uint256 shares1 = (amount1 * totalShares) / reserve1;
+
+            sharesMinted = shares0 < shares1 ? shares0 : shares1;
+
+            if (sharesMinted == 0) {
+                revert ZeroShares();
+            }
+
+            shares[msg.sender] += sharesMinted;
+            totalShares += sharesMinted;
+        }
+
+        // Effects: update accounting before external token calls.
+        reserve0 += amount0;
+        reserve1 += amount1;
+
+        // Interactions: pull the deposited tokens into the pool.
         token0.transferFrom(msg.sender, address(this), amount0);
         token1.transferFrom(msg.sender, address(this), amount1);
 
-        reserve0 += amount0;
-        reserve1 += amount1;
+        emit AddLiquidity(msg.sender, amount0, amount1, sharesMinted);
     }
 
     function swap(Token tokenIn, uint256 amountIn, uint256 minAmountOut) external returns (uint256 amountOut) {
@@ -85,7 +132,7 @@ contract Pool {
         emit Swap(msg.sender, address(tokenIn), amountIn, amountOut);
     }
 
-    /// @notice Calculates output using the constant-product formula, without fees.
+    /// @notice Calculates output using the constant-product formula with a 0.3% fee.
     function getAmountOut(uint256 amountIn, uint256 reserveIn, uint256 reserveOut)
         public
         pure
