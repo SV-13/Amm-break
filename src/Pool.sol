@@ -10,6 +10,9 @@ contract Pool {
     uint256 public reserve0;
     uint256 public reserve1;
 
+    uint256 private constant FEE_NUMERATOR = 997;
+    uint256 private constant FEE_DENOMINATOR = 1000;
+
     error ZeroInput();
     error NoLiquidity();
     error InvalidToken();
@@ -96,6 +99,8 @@ contract Pool {
             revert NoLiquidity();
         }
 
-        amountOut = (amountIn * reserveOut) / (reserveIn + amountIn);
+        uint256 amountInWithFee = amountIn * FEE_NUMERATOR;
+
+        amountOut = (amountInWithFee * reserveOut) / (reserveIn * FEE_DENOMINATOR + amountInWithFee);
     }
 }

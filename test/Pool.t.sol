@@ -73,13 +73,13 @@ contract PoolTest is Test {
         assertGe(kAfter, kBefore);
     }
 
-    function _seedPool() internal {
+    function _seedPool(uint256 amount0, uint256 amount1) internal {
         vm.prank(lp);
-        pool.addLiquidity(1_000, 1_000);
+        pool.addLiquidity(amount0, amount1);
     }
 
     function test_AddLiquiditySetsReservesAndHoldsTokens() public {
-        _seedPool();
+        _seedPool(1_000, 1_000);
 
         assertEq(pool.reserve0(), 1_000);
         assertEq(pool.reserve1(), 1_000);
@@ -92,7 +92,7 @@ contract PoolTest is Test {
     }
 
     function test_SwapMatchesHandTrace() public {
-        _seedPool();
+        _seedPool(1_000, 1_000);
 
         vm.prank(alice);
         uint256 amountOut = pool.swap(token0, 100, 90);
@@ -113,7 +113,7 @@ contract PoolTest is Test {
     }
 
     function test_SwapRevertsBelowMinAmountOut() public {
-        _seedPool();
+        _seedPool(1_000, 1_000);
 
         vm.expectRevert(abi.encodeWithSelector(Pool.SlippageExceeded.selector, 90, 91));
 
@@ -137,7 +137,7 @@ contract PoolTest is Test {
     }
 
     function test_SwapRejectsZeroOutput() public {
-        _seedPool();
+        _seedPool(1_000, 1_000);
 
         vm.expectRevert(Pool.ZeroOutput.selector);
 
@@ -148,5 +148,60 @@ contract PoolTest is Test {
         assertEq(pool.reserve0(), 1_000);
         assertEq(pool.reserve1(), 1_000);
         assertEq(token0.balanceOf(alice), 10_000);
+    }
+
+    function test_SwapAppliesFee() public {
+        _seedPool(1_000, 1_000);
+
+        vm.prank(alice);
+        uint256 amountOut = pool.swap(token0, 500, 332);
+
+        assertEq(amountOut, 332);
+        assertEq(pool.reserve0(), 1_500);
+        assertEq(pool.reserve1(), 668);
+        assertEq(pool.reserve0() * pool.reserve1(), 1_002_000);
+
+        assertEq(token0.balanceOf(address(pool)), pool.reserve0());
+        assertEq(token1.balanceOf(address(pool)), pool.reserve1());
+    }
+
+    function test_SwapToken1ForToken0() public {
+        // Asymmetric reserves help expose bugs hidden by symmetric pools.
+        _seedPool(1_000, 2_000);
+
+        vm.prank(alice);
+        uint256 amountOut = pool.swap(token1, 100, 47);
+
+        assertEq(amountOut, 47);
+        assertEq(pool.reserve0(), 953);
+        assertEq(pool.reserve1(), 2_100);
+        assertEq(pool.reserve0() * pool.reserve1(), 2_001_300);
+
+        assertEq(token0.balanceOf(alice), 10_047);
+        assertEq(token1.balanceOf(alice), 9_900);
+
+        assertEq(token0.balanceOf(address(pool)), pool.reserve0());
+        assertEq(token1.balanceOf(address(pool)), pool.reserve1());
+    }
+
+    function testFuzz_SwapKeepsInvariants(uint256 amountIn, bool zeroForOne) public {
+        _seedPool(1_000, 1_000);
+
+        amountIn = bound(amountIn, 10, 5_000);
+
+        uint256 kBefore = pool.reserve0() * pool.reserve1();
+
+        vm.prank(alice);
+        if (zeroForOne) {
+            pool.swap(token0, amountIn, 0);
+        } else {
+            pool.swap(token1, amountIn, 0);
+        }
+
+        uint256 kAfter = pool.reserve0() * pool.reserve1();
+
+        assertGe(kAfter, kBefore);
+        assertEq(token0.balanceOf(address(pool)), pool.reserve0());
+        assertEq(token1.balanceOf(address(pool)), pool.reserve1());
     }
 }
