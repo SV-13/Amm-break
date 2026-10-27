@@ -25,17 +25,20 @@ contract Pool {
     error SlippageExceeded(uint256 got, uint256 min);
     error ZeroOutput();
     error ZeroShares();
+    error InsufficientShares(uint256 have, uint256 want);
 
     event Swap(address indexed trader, address indexed tokenIn, uint256 amountIn, uint256 amountOut);
 
     event AddLiquidity(address indexed provider, uint256 amount0, uint256 amount1, uint256 sharesMinted);
+
+    event RemoveLiquidity(address indexed provider, uint256 sharesBurned, uint256 amount0, uint256 amount1);
 
     constructor(Token _token0, Token _token1) {
         token0 = _token0;
         token1 = _token1;
     }
 
-    /// @dev Bootstrap only. LP shares will be added later.
+    /// @dev Adds liquidity and mints non-transferable LP shares.
     function addLiquidity(uint256 amount0, uint256 amount1) external returns (uint256 sharesMinted) {
         // Checks: both assets must contribute to the deposit.
         if (amount0 == 0 || amount1 == 0) {
@@ -80,6 +83,40 @@ contract Pool {
         token1.transferFrom(msg.sender, address(this), amount1);
 
         emit AddLiquidity(msg.sender, amount0, amount1, sharesMinted);
+    }
+
+    function removeLiquidity(uint256 sharesToBurn) external returns (uint256 amount0, uint256 amount1) {
+        // Checks: the provider must own enough shares.
+        uint256 providerShares = shares[msg.sender];
+
+        if (providerShares < sharesToBurn) {
+            revert InsufficientShares(providerShares, sharesToBurn);
+        }
+
+        if (sharesToBurn == 0) {
+            revert ZeroOutput();
+        }
+
+        // Calculate the provider's proportional share of each reserve.
+        // Integer division rounds down, in favour of the pool.
+        amount0 = (sharesToBurn * reserve0) / totalShares;
+        amount1 = (sharesToBurn * reserve1) / totalShares;
+
+        if (amount0 == 0 || amount1 == 0) {
+            revert ZeroOutput();
+        }
+
+        // Effects: burn shares and update accounting before token calls.
+        shares[msg.sender] = providerShares - sharesToBurn;
+        totalShares -= sharesToBurn;
+        reserve0 -= amount0;
+        reserve1 -= amount1;
+
+        // Interactions: return the withdrawn tokens.
+        token0.transfer(msg.sender, amount0);
+        token1.transfer(msg.sender, amount1);
+
+        emit RemoveLiquidity(msg.sender, sharesToBurn, amount0, amount1);
     }
 
     function swap(Token tokenIn, uint256 amountIn, uint256 minAmountOut) external returns (uint256 amountOut) {
