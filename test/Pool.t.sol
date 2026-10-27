@@ -339,6 +339,8 @@ contract PoolTest is Test {
 
         assertEq(token0.balanceOf(address(pool)), pool.reserve0());
         assertEq(token1.balanceOf(address(pool)), pool.reserve1());
+        assertEq(token0.balanceOf(lp), 10_350);
+        assertEq(token1.balanceOf(lp), 9_601);
     }
 
     function test_CannotRemoveMoreSharesThanOwned() public {
@@ -411,5 +413,74 @@ contract PoolTest is Test {
 
         assertLe(out0, a0);
         assertLe(out1, a1);
+    }
+
+    function test_RemoveZeroSharesOnEmptyPoolReverts() public {
+        vm.expectRevert(Pool.ZeroOutput.selector);
+        vm.prank(lp);
+        pool.removeLiquidity(0);
+    }
+
+    function testFuzz_RemoveNeverDilutesRemainingProviders(uint256 a0, uint256 a1, uint256 burn) public {
+        _seedPool(1_000, 2_000);
+
+        a0 = bound(a0, 10, 5_000);
+        a1 = bound(a1, 10, 5_000);
+        burn = bound(burn, 10, 900);
+
+        // Alice swaps first, changing the reserve ratio.
+        vm.prank(alice);
+        pool.swap(token0, 123, 0);
+
+        // Alice adds an asymmetric deposit.
+        vm.prank(alice);
+        pool.addLiquidity(a0, a1);
+
+        // Snapshot state immediately before the withdrawal.
+        uint256 oldReserve0 = pool.reserve0();
+        uint256 oldReserve1 = pool.reserve1();
+        uint256 oldTotal = pool.totalShares();
+
+        // LP removes some of their shares.
+        vm.prank(lp);
+        pool.removeLiquidity(burn);
+
+        uint256 newTotal = pool.totalShares();
+
+        // The value per remaining share must not decrease.
+        assertGe(pool.reserve0() * oldTotal, oldReserve0 * newTotal);
+
+        assertGe(pool.reserve1() * oldTotal, oldReserve1 * newTotal);
+
+        // Every share belongs either to LP, Alice, or the locked supply.
+        assertEq(pool.shares(lp) + pool.shares(alice) + 100, pool.totalShares());
+    }
+
+    function testFuzz_SwapSequenceKeepsInvariants(uint256[8] memory amounts, uint8 directions) public {
+        _seedPool(1_000, 1_000);
+
+        uint256 kPrev = pool.reserve0() * pool.reserve1();
+
+        for (uint256 i = 0; i < 8; i++) {
+            uint256 amountIn = bound(amounts[i], 100, 500);
+            bool zeroForOne = ((directions >> i) & 1) == 1;
+
+            // Alice swaps in one direction.
+            vm.prank(alice);
+            if (zeroForOne) {
+                pool.swap(token0, amountIn, 0);
+            } else {
+                pool.swap(token1, amountIn, 0);
+            }
+
+            // The constant product must not decrease.
+            uint256 kNow = pool.reserve0() * pool.reserve1();
+            assertGe(kNow, kPrev);
+            kPrev = kNow;
+
+            // Recorded reserves must match the real token balances.
+            assertEq(token0.balanceOf(address(pool)), pool.reserve0());
+            assertEq(token1.balanceOf(address(pool)), pool.reserve1());
+        }
     }
 }
