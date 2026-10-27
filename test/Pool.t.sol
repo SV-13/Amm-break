@@ -60,7 +60,7 @@ contract PoolTest is Test {
         pool.getAmountOut(10, 100, 0);
     }
 
-    function testFuzz_KNeverDecreases(uint256 reserveIn, uint256 reserveOut, uint256 amountIn) public {
+    function testFuzz_KNeverDecreases(uint256 reserveIn, uint256 reserveOut, uint256 amountIn) public view {
         reserveIn = bound(reserveIn, 1, 1e30);
         reserveOut = bound(reserveOut, 1, 1e30);
         amountIn = bound(amountIn, 1, 1e30);

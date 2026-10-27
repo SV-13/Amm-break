@@ -33,47 +33,49 @@ contract Pool {
     }
 
     function swap(Token tokenIn, uint256 amountIn, uint256 minAmountOut) external returns (uint256 amountOut) {
-        // Checks: only accept the two tokens belonging to this pool.
-        if (tokenIn != token0 && tokenIn != token1) {
+        // Checks: accept only the two tokens in this pool.
+        if (address(tokenIn) != address(token0) && address(tokenIn) != address(token1)) {
             revert InvalidToken();
         }
 
+        // Determine direction once.
+        bool zeroForOne = address(tokenIn) == address(token0);
+
         Token tokenOut;
+        uint256 reserveIn;
+        uint256 reserveOut;
 
-        // Calculate output and update both reserves before token calls.
-        if (tokenIn == token0) {
+        if (zeroForOne) {
             tokenOut = token1;
+            reserveIn = reserve0;
+            reserveOut = reserve1;
+        } else {
+            tokenOut = token0;
+            reserveIn = reserve1;
+            reserveOut = reserve0;
+        }
 
-            amountOut = getAmountOut(amountIn, reserve0, reserve1);
+        // Checks: calculate output and enforce the slippage limit.
+        amountOut = getAmountOut(amountIn, reserveIn, reserveOut);
 
-            if (amountOut == 0) {
-                revert ZeroOutput();
-            }
+        if (amountOut == 0) {
+            revert ZeroOutput();
+        }
 
-            if (amountOut < minAmountOut) {
-                revert SlippageExceeded(amountOut, minAmountOut);
-            }
+        if (amountOut < minAmountOut) {
+            revert SlippageExceeded(amountOut, minAmountOut);
+        }
 
+        // Effects: update state before interacting with token contracts.
+        if (zeroForOne) {
             reserve0 += amountIn;
             reserve1 -= amountOut;
         } else {
-            tokenOut = token0;
-
-            amountOut = getAmountOut(amountIn, reserve1, reserve0);
-
-            if (amountOut == 0) {
-                revert ZeroOutput();
-            }
-
-            if (amountOut < minAmountOut) {
-                revert SlippageExceeded(amountOut, minAmountOut);
-            }
-
             reserve1 += amountIn;
             reserve0 -= amountOut;
         }
 
-        // Interactions: pull input tokens and send output tokens.
+        // Interactions: move the tokens.
         tokenIn.transferFrom(msg.sender, address(this), amountIn);
         tokenOut.transfer(msg.sender, amountOut);
 
