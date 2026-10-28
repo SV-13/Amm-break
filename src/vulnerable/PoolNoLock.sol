@@ -15,6 +15,7 @@ contract PoolNoLock {
     uint256 public totalShares;
     mapping(address => uint256) public shares;
 
+    // VULNERABILITY: no minimum liquidity is locked.
     uint256 private constant MINIMUM_LIQUIDITY = 0;
 
     uint256 private constant FEE_NUMERATOR = 997;
@@ -47,7 +48,7 @@ contract PoolNoLock {
         }
 
         if (totalShares == 0) {
-            // First deposit: geometric mean, minus locked shares.
+            // Vulnerability: no shares are locked on the first deposit.
             uint256 initialShares = Math.sqrt(amount0 * amount1);
 
             // Avoid underflow and reject deposits that mint no provider shares.
@@ -57,7 +58,7 @@ contract PoolNoLock {
 
             sharesMinted = initialShares - MINIMUM_LIQUIDITY;
 
-            // The total includes both provider shares and the locked 100.
+            // No minimum shares are locked in this vulnerable copy.
             totalShares = initialShares;
             shares[msg.sender] += sharesMinted;
         } else {
