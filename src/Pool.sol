@@ -38,7 +38,7 @@ contract Pool {
         token1 = _token1;
     }
 
-    /// @dev Adds liquidity and mints non-transferable LP shares.
+    /// @notice Adds liquidity and mints shares, reverting if fewer than minShares are minted.
     function addLiquidity(uint256 amount0, uint256 amount1, uint256 minShares) external returns (uint256 sharesMinted) {
         if (amount0 == 0 || amount1 == 0) {
             revert ZeroShares();
@@ -49,7 +49,7 @@ contract Pool {
         if (firstDeposit) {
             // First deposit: geometric mean, minus locked shares.
             uint256 initialShares = Math.sqrt(amount0 * amount1);
-
+            // Reject zero provider shares and avoid underflow when subtracting the lock.
             if (initialShares <= MINIMUM_LIQUIDITY) {
                 revert ZeroShares();
             }

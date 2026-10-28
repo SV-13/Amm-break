@@ -469,4 +469,30 @@ contract PoolTest is Test {
             assertEq(token1.balanceOf(address(pool)), pool.reserve1());
         }
     }
+
+    function test_FirstDepositRespectsMinShares() public {
+        // A first deposit of 1,000 / 1,000 mints 900 provider shares.
+        vm.expectRevert(abi.encodeWithSelector(Pool.SlippageExceeded.selector, 900, 901));
+
+        vm.prank(lp);
+        pool.addLiquidity(1_000, 1_000, 901);
+
+        // The rejected first deposit must leave the pool unchanged.
+        assertEq(pool.reserve0(), 0);
+        assertEq(pool.reserve1(), 0);
+        assertEq(pool.totalShares(), 0);
+        assertEq(pool.shares(lp), 0);
+        assertEq(token0.balanceOf(address(pool)), 0);
+        assertEq(token1.balanceOf(address(pool)), 0);
+
+        // Exactly 900 shares meets the minimum and should succeed.
+        vm.prank(lp);
+        uint256 minted = pool.addLiquidity(1_000, 1_000, 900);
+
+        assertEq(minted, 900);
+        assertEq(pool.shares(lp), 900);
+        assertEq(pool.totalShares(), 1_000);
+        assertEq(pool.reserve0(), 1_000);
+        assertEq(pool.reserve1(), 1_000);
+    }
 }
