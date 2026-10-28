@@ -30,7 +30,7 @@ contract Token {
         emit Transfer(address(0), to, amount);
     }
 
-    function transfer(address to, uint256 amount) external returns (bool) {
+    function transfer(address to, uint256 amount) public virtual returns (bool) {
         uint256 have = balanceOf[msg.sender];
         if (have < amount) {
             revert InsufficientBalance(have, amount);
