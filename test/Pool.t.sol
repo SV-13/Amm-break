@@ -37,7 +37,7 @@ contract PoolTest is Test {
         vm.stopPrank();
     }
 
-    // Existing formula tests
+    // Formula tests
 
     function test_SmallTrade() public view {
         assertEq(pool.getAmountOut(10, 100, 100), 9);
@@ -75,7 +75,7 @@ contract PoolTest is Test {
 
     function _seedPool(uint256 amount0, uint256 amount1) internal {
         vm.prank(lp);
-        pool.addLiquidity(amount0, amount1);
+        pool.addLiquidity(amount0, amount1, 0);
     }
 
     function test_AddLiquiditySetsReservesAndHoldsTokens() public {
@@ -99,15 +99,12 @@ contract PoolTest is Test {
 
         assertEq(amountOut, 90);
 
-        // Recorded reserves match the hand trace.
         assertEq(pool.reserve0(), 1_100);
         assertEq(pool.reserve1(), 910);
 
-        // Alice sent 100 token0 and received 90 token1.
         assertEq(token0.balanceOf(alice), 9_900);
         assertEq(token1.balanceOf(alice), 10_090);
 
-        // The real token balances must match recorded reserves.
         assertEq(token0.balanceOf(address(pool)), pool.reserve0());
         assertEq(token1.balanceOf(address(pool)), pool.reserve1());
     }
@@ -120,7 +117,6 @@ contract PoolTest is Test {
         vm.prank(alice);
         pool.swap(token0, 100, 91);
 
-        // The reverted swap must not alter pool state.
         assertEq(pool.reserve0(), 1_000);
         assertEq(pool.reserve1(), 1_000);
         assertEq(token0.balanceOf(address(pool)), 1_000);
@@ -144,7 +140,6 @@ contract PoolTest is Test {
         vm.prank(alice);
         pool.swap(token0, 1, 0);
 
-        // A rejected dust swap leaves everything unchanged.
         assertEq(pool.reserve0(), 1_000);
         assertEq(pool.reserve1(), 1_000);
         assertEq(token0.balanceOf(alice), 10_000);
@@ -166,7 +161,6 @@ contract PoolTest is Test {
     }
 
     function test_SwapToken1ForToken0() public {
-        // Asymmetric reserves help expose bugs hidden by symmetric pools.
         _seedPool(1_000, 2_000);
 
         vm.prank(alice);
@@ -205,9 +199,11 @@ contract PoolTest is Test {
         assertEq(token1.balanceOf(address(pool)), pool.reserve1());
     }
 
+    // Liquidity provider shares
+
     function test_FirstDepositMintsSharesAndLocksMinimum() public {
         vm.prank(lp);
-        uint256 minted = pool.addLiquidity(1_000, 1_000);
+        uint256 minted = pool.addLiquidity(1_000, 1_000, 0);
 
         assertEq(minted, 900);
         assertEq(pool.shares(lp), 900);
@@ -221,7 +217,7 @@ contract PoolTest is Test {
 
     function test_FirstDepositAsymmetric() public {
         vm.prank(lp);
-        uint256 minted = pool.addLiquidity(1_000, 2_000);
+        uint256 minted = pool.addLiquidity(1_000, 2_000, 0);
 
         assertEq(minted, 1_314);
         assertEq(pool.shares(lp), 1_314);
@@ -235,7 +231,7 @@ contract PoolTest is Test {
         _seedPool(1_000, 2_000);
 
         vm.prank(alice);
-        uint256 minted = pool.addLiquidity(500, 1_000);
+        uint256 minted = pool.addLiquidity(500, 1_000, 0);
 
         assertEq(minted, 707);
         assertEq(pool.shares(lp), 1_314);
@@ -253,7 +249,7 @@ contract PoolTest is Test {
         _seedPool(1_000, 1_000);
 
         vm.prank(alice);
-        uint256 minted = pool.addLiquidity(500, 100);
+        uint256 minted = pool.addLiquidity(500, 100, 0);
 
         assertEq(minted, 100);
         assertEq(pool.shares(alice), 100);
@@ -267,7 +263,7 @@ contract PoolTest is Test {
         vm.expectRevert(Pool.ZeroShares.selector);
 
         vm.prank(lp);
-        pool.addLiquidity(10, 10);
+        pool.addLiquidity(10, 10, 0);
 
         assertEq(pool.totalShares(), 0);
         assertEq(pool.reserve0(), 0);
@@ -277,7 +273,6 @@ contract PoolTest is Test {
     function test_DepositThatRoundsToZeroSharesReverts() public {
         _seedPool(1_000, 1_000);
 
-        // The fee stays in the pool, increasing reserves without minting shares.
         vm.prank(alice);
         pool.swap(token0, 500, 0);
 
@@ -285,12 +280,10 @@ contract PoolTest is Test {
         assertEq(pool.reserve1(), 668);
         assertEq(pool.totalShares(), 1_000);
 
-        // 1 * 1,000 / 1,500 rounds down to zero shares.
         vm.expectRevert(Pool.ZeroShares.selector);
         vm.prank(alice);
-        pool.addLiquidity(1, 1);
+        pool.addLiquidity(1, 1, 0);
 
-        // A reverted deposit must leave state unchanged.
         assertEq(pool.reserve0(), 1_500);
         assertEq(pool.reserve1(), 668);
         assertEq(pool.totalShares(), 1_000);
@@ -301,6 +294,8 @@ contract PoolTest is Test {
         assertEq(token0.balanceOf(alice), 9_500);
         assertEq(token1.balanceOf(alice), 10_332);
     }
+
+    // Liquidity withdrawals
 
     function test_RemovePartialShares() public {
         _seedPool(1_000, 1_000);
@@ -381,7 +376,6 @@ contract PoolTest is Test {
         assertEq(pool.reserve0(), 6_000);
         assertEq(pool.reserve1(), 168);
 
-        // One share gives floor(168 / 1,000) = 0 of token1.
         vm.expectRevert(Pool.ZeroOutput.selector);
 
         vm.prank(lp);
@@ -396,29 +390,30 @@ contract PoolTest is Test {
         assertEq(token1.balanceOf(address(pool)), 168);
     }
 
+    function test_RemoveZeroSharesOnEmptyPoolReverts() public {
+        vm.expectRevert(Pool.ZeroOutput.selector);
+        vm.prank(lp);
+        pool.removeLiquidity(0);
+    }
+
+    // Fuzz tests
+
     function testFuzz_DepositThenWithdrawNeverProfits(uint256 a0, uint256 a1) public {
         _seedPool(1_000, 2_000);
 
         a0 = bound(a0, 10, 5_000);
         a1 = bound(a1, 10, 5_000);
 
-        // Change the reserves before Alice joins, including the fee.
         vm.prank(alice);
         pool.swap(token0, 123, 0);
 
         vm.startPrank(alice);
-        uint256 minted = pool.addLiquidity(a0, a1);
+        uint256 minted = pool.addLiquidity(a0, a1, 0);
         (uint256 out0, uint256 out1) = pool.removeLiquidity(minted);
         vm.stopPrank();
 
         assertLe(out0, a0);
         assertLe(out1, a1);
-    }
-
-    function test_RemoveZeroSharesOnEmptyPoolReverts() public {
-        vm.expectRevert(Pool.ZeroOutput.selector);
-        vm.prank(lp);
-        pool.removeLiquidity(0);
     }
 
     function testFuzz_RemoveNeverDilutesRemainingProviders(uint256 a0, uint256 a1, uint256 burn) public {
@@ -428,31 +423,25 @@ contract PoolTest is Test {
         a1 = bound(a1, 10, 5_000);
         burn = bound(burn, 10, 900);
 
-        // Alice swaps first, changing the reserve ratio.
         vm.prank(alice);
         pool.swap(token0, 123, 0);
 
-        // Alice adds an asymmetric deposit.
         vm.prank(alice);
-        pool.addLiquidity(a0, a1);
+        pool.addLiquidity(a0, a1, 0);
 
-        // Snapshot state immediately before the withdrawal.
         uint256 oldReserve0 = pool.reserve0();
         uint256 oldReserve1 = pool.reserve1();
         uint256 oldTotal = pool.totalShares();
 
-        // LP removes some of their shares.
         vm.prank(lp);
         pool.removeLiquidity(burn);
 
         uint256 newTotal = pool.totalShares();
 
-        // The value per remaining share must not decrease.
         assertGe(pool.reserve0() * oldTotal, oldReserve0 * newTotal);
 
         assertGe(pool.reserve1() * oldTotal, oldReserve1 * newTotal);
 
-        // Every share belongs either to LP, Alice, or the locked supply.
         assertEq(pool.shares(lp) + pool.shares(alice) + 100, pool.totalShares());
     }
 
@@ -465,7 +454,6 @@ contract PoolTest is Test {
             uint256 amountIn = bound(amounts[i], 100, 500);
             bool zeroForOne = ((directions >> i) & 1) == 1;
 
-            // Alice swaps in one direction.
             vm.prank(alice);
             if (zeroForOne) {
                 pool.swap(token0, amountIn, 0);
@@ -473,12 +461,10 @@ contract PoolTest is Test {
                 pool.swap(token1, amountIn, 0);
             }
 
-            // The constant product must not decrease.
             uint256 kNow = pool.reserve0() * pool.reserve1();
             assertGe(kNow, kPrev);
             kPrev = kNow;
 
-            // Recorded reserves must match the real token balances.
             assertEq(token0.balanceOf(address(pool)), pool.reserve0());
             assertEq(token1.balanceOf(address(pool)), pool.reserve1());
         }

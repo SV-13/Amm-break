@@ -39,28 +39,24 @@ contract Pool {
     }
 
     /// @dev Adds liquidity and mints non-transferable LP shares.
-    function addLiquidity(uint256 amount0, uint256 amount1) external returns (uint256 sharesMinted) {
-        // Checks: both assets must contribute to the deposit.
+    function addLiquidity(uint256 amount0, uint256 amount1, uint256 minShares) external returns (uint256 sharesMinted) {
         if (amount0 == 0 || amount1 == 0) {
             revert ZeroShares();
         }
 
-        if (totalShares == 0) {
+        bool firstDeposit = totalShares == 0;
+
+        if (firstDeposit) {
             // First deposit: geometric mean, minus locked shares.
             uint256 initialShares = Math.sqrt(amount0 * amount1);
 
-            // Avoid underflow and reject deposits that mint no provider shares.
             if (initialShares <= MINIMUM_LIQUIDITY) {
                 revert ZeroShares();
             }
 
             sharesMinted = initialShares - MINIMUM_LIQUIDITY;
-
-            // The total includes both provider shares and the locked 100.
-            totalShares = initialShares;
-            shares[msg.sender] += sharesMinted;
         } else {
-            // Later deposits must respect the pool's existing proportions.
+            // Later deposits mint shares based on the smaller ratio.
             uint256 shares0 = (amount0 * totalShares) / reserve0;
             uint256 shares1 = (amount1 * totalShares) / reserve1;
 
@@ -69,16 +65,26 @@ contract Pool {
             if (sharesMinted == 0) {
                 revert ZeroShares();
             }
+        }
 
-            shares[msg.sender] += sharesMinted;
+        // Slippage protection: check before changing state or moving tokens.
+        if (sharesMinted < minShares) {
+            revert SlippageExceeded(sharesMinted, minShares);
+        }
+
+        // Effects: record shares and reserves.
+        shares[msg.sender] += sharesMinted;
+
+        if (firstDeposit) {
+            totalShares = sharesMinted + MINIMUM_LIQUIDITY;
+        } else {
             totalShares += sharesMinted;
         }
 
-        // Effects: update accounting before external token calls.
         reserve0 += amount0;
         reserve1 += amount1;
 
-        // Interactions: pull the deposited tokens into the pool.
+        // Interactions: pull in both tokens.
         token0.transferFrom(msg.sender, address(this), amount0);
         token1.transferFrom(msg.sender, address(this), amount1);
 
