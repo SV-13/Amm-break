@@ -51,9 +51,7 @@ contract ReentrancyAttacker is ITokenReceiver {
     }
 }
 
-// ------------------------------------------------------------
-// Session 4: intentionally vulnerable pool
-// ------------------------------------------------------------
+// Vulnerable pool: effects happen after token transfers.
 
 contract ReentrancyAttackTest is Test {
     HookToken token0;
@@ -120,9 +118,7 @@ contract ReentrancyAttackTest is Test {
     }
 }
 
-// ------------------------------------------------------------
-// Session 5: real pool, checks-effects-interactions ordering
-// ------------------------------------------------------------
+// Real pool: checks-effects-interactions ordering.
 
 contract RealPoolReentrancyTest is Test {
     HookToken token0;
