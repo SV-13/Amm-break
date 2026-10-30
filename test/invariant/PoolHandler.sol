@@ -19,6 +19,17 @@ contract PoolHandler is Test {
     uint256 public addCount;
     uint256 public removeCount;
     uint256 public kDecreases;
+    uint256 public dilutions;
+
+    // Minimum-shares boundary testing.
+    uint256 public boundaryViolations;
+    uint256 public boundaryChecks;
+
+    struct Snapshot {
+        uint256 reserve0;
+        uint256 reserve1;
+        uint256 totalShares;
+    }
 
     modifier useActor(uint256 actorSeed) {
         currentActor = actors[bound(actorSeed, 0, actors.length - 1)];
@@ -56,6 +67,22 @@ contract PoolHandler is Test {
 
     function actorCount() external view returns (uint256) {
         return actors.length;
+    }
+
+    /// @notice Captures the pool state relevant to LP dilution.
+    function _snapshot() internal view returns (Snapshot memory) {
+        return Snapshot({reserve0: pool.reserve0(), reserve1: pool.reserve1(), totalShares: pool.totalShares()});
+    }
+
+    /// @notice Detects whether either token's reserve per share decreased.
+    function _checkNoDilution(Snapshot memory pre, Snapshot memory post) internal {
+        bool token0Diluted = post.reserve0 * pre.totalShares < pre.reserve0 * post.totalShares;
+
+        bool token1Diluted = post.reserve1 * pre.totalShares < pre.reserve1 * post.totalShares;
+
+        if (token0Diluted || token1Diluted) {
+            dilutions++;
+        }
     }
 
     function swap(uint256 actorSeed, bool zeroForOne, uint256 amountIn) external useActor(actorSeed) {
@@ -110,8 +137,66 @@ contract PoolHandler is Test {
             return;
         }
 
+        Snapshot memory pre = _snapshot();
+
         pool.addLiquidity(amount0, amount1, 0);
+
+        Snapshot memory post = _snapshot();
+
+        _checkNoDilution(pre, post);
+
         addCount++;
+    }
+
+    /// @notice Tests that minShares rejects one share above the expected amount
+    /// and accepts the exact expected amount.
+    function addLiquidityAtBoundary(uint256 actorSeed, uint256 amount0, uint256 amount1) external useActor(actorSeed) {
+        amount0 = bound(amount0, 1_000, 1_000_000);
+        amount1 = bound(amount1, 1_000, 1_000_000);
+
+        uint256 reserve0 = pool.reserve0();
+        uint256 reserve1 = pool.reserve1();
+        uint256 totalShares = pool.totalShares();
+
+        if (reserve0 == 0 || reserve1 == 0 || totalShares == 0) {
+            return;
+        }
+
+        // Calculate the exact shares the pool should mint.
+        uint256 shares0 = (amount0 * totalShares) / reserve0;
+        uint256 shares1 = (amount1 * totalShares) / reserve1;
+
+        uint256 expected = shares0 < shares1 ? shares0 : shares1;
+
+        if (expected == 0) {
+            return;
+        }
+
+        // One share above the expected amount must revert.
+        Snapshot memory preAboveBoundary = _snapshot();
+
+        try pool.addLiquidity(amount0, amount1, expected + 1) {
+            boundaryViolations++;
+
+            Snapshot memory postAboveBoundary = _snapshot();
+            _checkNoDilution(preAboveBoundary, postAboveBoundary);
+
+            addCount++;
+        } catch {}
+
+        // The exact expected amount must succeed.
+        Snapshot memory preAtBoundary = _snapshot();
+
+        try pool.addLiquidity(amount0, amount1, expected) {
+            Snapshot memory postAtBoundary = _snapshot();
+            _checkNoDilution(preAtBoundary, postAtBoundary);
+
+            addCount++;
+        } catch {
+            boundaryViolations++;
+        }
+
+        boundaryChecks++;
     }
 
     function removeLiquidity(uint256 actorSeed, uint256 sharesToBurn) external useActor(actorSeed) {
@@ -137,7 +222,15 @@ contract PoolHandler is Test {
             return;
         }
 
+        Snapshot memory pre = _snapshot();
+
         pool.removeLiquidity(sharesToBurn);
+
+        Snapshot memory post = _snapshot();
+
+        _checkNoDilution(pre, post);
+
         removeCount++;
     }
 }
+

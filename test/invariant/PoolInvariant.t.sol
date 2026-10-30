@@ -23,10 +23,11 @@ contract PoolInvariantTest is Test {
 
         targetContract(address(handler));
 
-        bytes4[] memory selectors = new bytes4[](3);
+        bytes4[] memory selectors = new bytes4[](4);
         selectors[0] = PoolHandler.swap.selector;
         selectors[1] = PoolHandler.addLiquidity.selector;
         selectors[2] = PoolHandler.removeLiquidity.selector;
+        selectors[3] = PoolHandler.addLiquidityAtBoundary.selector;
 
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
     }
@@ -52,4 +53,15 @@ contract PoolInvariantTest is Test {
     function invariant_SwapsNeverLowerK() public view {
         assertEq(handler.kDecreases(), 0);
     }
+
+    /// Rule 4: Liquidity operations must never dilute existing shares.
+    function invariant_NoDilution() public view {
+        assertEq(handler.dilutions(), 0);
+    }
+
+    /// Rule 5: Minimum-shares boundary checks must always behave correctly.
+    function invariant_MinSharesBoundaryHolds() public view {
+        assertEq(handler.boundaryViolations(), 0);
+    }
 }
+
