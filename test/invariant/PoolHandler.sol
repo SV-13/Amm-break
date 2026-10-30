@@ -136,6 +136,7 @@ contract PoolHandler is Test {
         if (amount0 == 0 || amount1 == 0) {
             return;
         }
+
         pool.removeLiquidity(sharesToBurn);
         removeCount++;
     }

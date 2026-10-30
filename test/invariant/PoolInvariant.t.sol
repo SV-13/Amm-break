@@ -2,13 +2,13 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {Token} from "../../src/Token.sol";
 import {Pool} from "../../src/Pool.sol";
 import {PoolHandler} from "./PoolHandler.sol";
 
-contract PoolInvariantTest is StdInvariant, Test {
+contract PoolInvariantTest is Test {
     uint256 internal constant LOCKED_SHARES = 100;
+    // Mirrors Pool.MINIMUM_LIQUIDITY, which is private.
 
     Token token0;
     Token token1;
