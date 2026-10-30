@@ -4,11 +4,12 @@ pragma solidity ^0.8.20;
 import {Test} from "forge-std/Test.sol";
 import {Token} from "../../src/Token.sol";
 import {Pool} from "../../src/Pool.sol";
+import {HookToken} from "../../src/vulnerable/HookToken.sol";
 import {PoolHandler} from "./PoolHandler.sol";
 
 contract PoolInvariantTest is Test {
-    uint256 internal constant LOCKED_SHARES = 100;
     // Mirrors Pool.MINIMUM_LIQUIDITY, which is private.
+    uint256 internal constant LOCKED_SHARES = 100;
 
     Token token0;
     Token token1;
@@ -16,18 +17,21 @@ contract PoolInvariantTest is Test {
     PoolHandler handler;
 
     function setUp() public {
-        token0 = new Token("Token 0", "T0");
+        // token0 calls the recipient when the pool transfers tokens out.
+        token0 = new HookToken("Token 0", "T0");
         token1 = new Token("Token 1", "T1");
+
         pool = new Pool(token0, token1);
         handler = new PoolHandler(token0, token1, pool);
 
         targetContract(address(handler));
 
-        bytes4[] memory selectors = new bytes4[](4);
+        bytes4[] memory selectors = new bytes4[](5);
         selectors[0] = PoolHandler.swap.selector;
         selectors[1] = PoolHandler.addLiquidity.selector;
         selectors[2] = PoolHandler.removeLiquidity.selector;
         selectors[3] = PoolHandler.addLiquidityAtBoundary.selector;
+        selectors[4] = PoolHandler.attackerRound.selector;
 
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
     }
@@ -45,7 +49,9 @@ contract PoolInvariantTest is Test {
         for (uint256 i = 0; i < handler.actorCount(); i++) {
             accountedShares += pool.shares(handler.actors(i));
         }
-
+        accountedShares += pool.shares(address(handler.attacker()));
+        // Diagnostic step: intentionally not counting handler.attacker()
+        // yet, so the next run exposes the missing share-accounting entry.
         assertEq(accountedShares, pool.totalShares());
     }
 
