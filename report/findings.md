@@ -197,7 +197,7 @@ The caller must therefore use a meaningful minimum derived from a trustworthy pr
 | Severity | High (self-assessed) |
 | Status | Mitigated in main implementation for the tested callback path |
 | Impact | High — attacker gains 1,000 of each token; the honest LP can withdraw 0 of the 1,000 deposited units of each token (0%) |
-| Likelihood | Medium when hook-enabled tokens are supported; Low if restricted to ordinary ERC-20s without callbacks |
+| Likelihood | Medium — assumes callback-enabled token integrations are in scope; the attack requires a specific but realistic token integration and transaction sequence |
 | Vulnerable implementation | `src/vulnerable/PoolReentrant.sol` |
 | Mitigation | Checks-effects-interactions ordering in `Pool.removeLiquidity()` |
 | Demonstration | `test_ReentrantWithdrawalDrainsPool()` in `ReentrancyAttackTest` |
@@ -240,7 +240,9 @@ The first attacker lets the nested revert bubble up and roll back the entire tra
 
 The reproduction covers a recipient-side callback during token0 transfer. It does not test sender-side hooks during `transferFrom`, read-only reentrancy, or re-entry into `swap()` or `addLiquidity()`.
 
-Real-world context: Tokenlon described the April 18, 2020 imBTC/Uniswap reentrancy incident and the subsequent Lendf.Me incident involving ERC-777 hooks in its [incident notice](https://support.tokenlon.im/hc/en-us/articles/360042172392-imBTC-fully-restored-transfer-trading-and-redeem). dForce's [April 2020 update](https://medium.com/dforcenet/dforce-ecosystem-update-april-2020-f2f620cfe5ed) describes how the callback mechanism enabled repeated supply and withdrawal before balances were updated. These incidents support the relevance of callback-aware integration testing, although their exact callback paths are not identical to this project's recipient-side proof of concept.
+Real-world context: Tokenlon identifies the ERC-777 `tokensToSend` hook as the mechanism involved in the Uniswap and Lendf.Me reentrancy incidents and records the April 18–19, 2020 timeline in its [incident notice](https://support.tokenlon.im/hc/en-us/articles/360042172392-imBTC-fully-restored-transfer-trading-mint-and-redeem). PeckShield's [root-cause analysis](https://peckshield.medium.com/uniswap-lendf-me-hacks-root-cause-and-loss-analysis-50f3263dcc09), also quoted by [Security Affairs](https://securityaffairs.com/101895/cyber-crime/uniswap-lendf-me-hacked.html), explains that the sender-side `tokensToSend()` hook runs during ERC-777-compatible `transferFrom()`, before the token balance is updated. dForce's [April 2020 update](https://medium.com/dforcenet/dforce-ecosystem-update-april-2020-f2f620cfe5ed) confirms that Lendf.Me was attacked on April 19, approximately $25 million in assets were drained, and the callback mechanism enabled repeated supply and withdrawal before the balance was updated.
+
+The historical incidents involved a sender-side callback during `transferFrom()`. This project's proof of concept exercises a different path: a recipient-side `onTokenReceived()` callback during `token0.transfer()`. The incidents provide context for callback-related reentrancy risk; they are not identical reproductions of this project's attack path.
 
 The tested CEI ordering mitigates this demonstrated withdrawal path; it does not establish that every external-call path is protected.
 
