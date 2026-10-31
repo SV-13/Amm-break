@@ -2,7 +2,7 @@
 
 **Scope:** `src/Pool.sol` (constant-product pool with a 0.3% fee) and intentionally vulnerable variants in `src/vulnerable/`.
 
-**Assessment status:** Not independently audited. Educational project; no mainnet deployment.
+**Project context:** Educational project. No mainnet deployment. No independent security review was performed.
 
 ## Severity methodology
 
@@ -14,7 +14,16 @@ Severity is self-assessed using Impact × Likelihood.
 | Medium | Low | Medium | High |
 | Low | Low | Low | Medium |
 
-The ratings below are project assessments rather than formal audit ratings.
+Definitions:
+
+- **Low impact:** Limited, recoverable loss with little effect on users.
+- **Medium impact:** Material loss affecting a portion of user funds or functionality.
+- **High impact:** Major loss of user funds or complete loss of access to deposited assets.
+- **Low likelihood:** Requires unusual conditions or unsupported token behaviour.
+- **Medium likelihood:** Requires a specific but realistic integration or transaction sequence.
+- **High likelihood:** Can be triggered through ordinary supported operations without unusual preconditions.
+
+The ratings below are project assessments, not formal audit ratings.
 
 ## Summary
 
@@ -23,6 +32,7 @@ The ratings below are project assessments rather than formal audit ratings.
 | F-01 | First-depositor share inflation | High (self-assessed) | Partially mitigated (see F-02) |
 | F-02 | Missing minimum-share slippage protection | High (self-assessed) | Mitigated in main implementation; caller-dependent |
 | F-03 | Reentrant liquidity withdrawal | High (self-assessed) | Mitigated in main implementation for the tested callback path |
+| F-04 | Swap output rounded up | Medium (self-assessed) | Mitigated in main implementation |
 
 ---
 
@@ -186,84 +196,180 @@ The caller must therefore use a meaningful minimum derived from a trustworthy pr
 |---|---|
 | Severity | High (self-assessed) |
 | Status | Mitigated in main implementation for the tested callback path |
-| Impact | High — the attacker withdraws 2,000 of each token while the honest LP's 900 shares become unredeemable |
-| Likelihood | Medium — requires a token that invokes a recipient callback during transfer and an attacker contract able to re-enter the pool |
+| Impact | High — attacker gains 1,000 of each token; the honest LP can withdraw 0 of the 1,000 deposited units of each token (0%) |
+| Likelihood | Medium when hook-enabled tokens are supported; Low if restricted to ordinary ERC-20s without callbacks |
 | Vulnerable implementation | `src/vulnerable/PoolReentrant.sol` |
 | Mitigation | Checks-effects-interactions ordering in `Pool.removeLiquidity()` |
 | Demonstration | `test_ReentrantWithdrawalDrainsPool()` in `ReentrancyAttackTest` |
-| Fix verification | `test_NaiveReentrancyReverts()` and `test_SwallowedReentrancyGainsNothing()` in `RealPoolReentrancyTest` |
+| Fix verification | `test_NaiveReentrancyReverts()` and `test_SwallowedReentrancyGainsNothing()` |
 | Reproduce (attack) | `forge test --match-contract ReentrancyAttackTest -vvv` |
 | Reproduce (fix) | `forge test --match-contract RealPoolReentrancyTest -vvv` |
 
 ### What happens
 
-The vulnerable pool calculates a withdrawal but transfers token0 before updating the attacker's shares, total shares or reserves. The pool's token0 is a callback-enabled `HookToken`; when it transfers tokens to the attacker contract, it invokes `onTokenReceived()`, which calls `removeLiquidity()` again. Because the original withdrawal has not updated state, the nested call still sees 1,000 attacker shares and reserves of 2,000 token0 and 2,000 token1. Both withdrawals therefore transfer 1,000 of each token, draining the pool.
+The vulnerable `PoolReentrant.removeLiquidity()` calculates the attacker's withdrawal and calls `token0.transfer()` before updating accounting. The callback-enabled `HookToken` invokes the attacker's `onTokenReceived()` function during that transfer. The attacker re-enters `removeLiquidity(1000)` while its original 1,000 shares and the pool's 2,000/2,000 reserves are still recorded. The nested withdrawal therefore pays out a second 1,000 of each token before the outer call applies its own state updates.
 
 ### Demonstrated impact
 
-The test starts with:
+| Measurement | Vulnerable pool | Corrected pool, swallowing attacker |
+|---|---:|---:|
+| Attacker final token0 / token1 | 2,000 / 2,000 | 1,000 / 1,000 |
+| Attacker net token0 / token1 | +1,000 / +1,000 | 0 / 0 |
+| Honest LP original deposit | 1,000 / 1,000 | 1,000 / 1,000 |
+| Honest LP shares after attack | 900 | 900 |
+| Honest LP withdrawable token0 / token1 | 0 / 0 | 900 / 900 |
+| Honest LP recovery | 0% | 90% |
+| Remaining pool reserves | 0 / 0 | 100 / 100 |
 
-| Item | Value |
-|---|---:|
-| Honest LP shares | 900 |
-| Attacker shares | 1,000 |
-| Total shares | 2,000 |
-| Pool reserve0 | 2,000 |
-| Pool reserve1 | 2,000 |
-
-After the reentrant attack, the test asserts:
-
-| Item | Final value |
-|---|---:|
-| Attacker token0 balance | 2,000 |
-| Attacker token1 balance | 2,000 |
-| Attacker shares | 0 |
-| Honest LP shares | 900 |
-| Total shares | 0 |
-| Pool reserve0 | 0 |
-| Pool reserve1 | 0 |
-| Pool token0 balance | 0 |
-| Pool token1 balance | 0 |
-
-The attacker started with 1,000 of each token and deposited those tokens into the pool. Their final balances of 2,000 each represent a net gain of 1,000 of each token.
-
-The honest LP still has 900 recorded shares, but the pool's total share supply and reserves have both reached zero. When the honest LP attempts to withdraw 900 shares, the withdrawal calculation divides by `totalShares == 0` and reverts with a division-by-zero error. The LP's recorded shares no longer correspond to redeemable assets.
+In the vulnerable pool, the honest LP's 900 shares remain recorded, but `totalShares` and both reserves become zero. The subsequent withdrawal reverts with a division-by-zero error. In the corrected pool, the locked 100 of each token remains after the honest LP withdraws.
 
 ### What the fix does
 
-The vulnerable `PoolReentrant.removeLiquidity()` performs external token transfers before applying the withdrawal effects.
-
-The corrected `Pool.removeLiquidity()` follows checks-effects-interactions:
-
-1. It verifies the provider's share balance and calculates the withdrawal amounts.
-2. It reduces `shares[msg.sender]`.
-3. It reduces `totalShares`, `reserve0` and `reserve1`.
-4. Only then does it call `token0.transfer()` and `token1.transfer()`.
-
-When the token0 callback attempts the nested withdrawal, the attacker already has zero shares. The nested call fails with:
-
-`InsufficientShares(0, 1000)`
-
-It cannot withdraw the same shares a second time.
+`Pool.removeLiquidity()` follows checks-effects-interactions: it reduces the provider's shares, total shares and both reserves before calling either token's `transfer()`. Consequently, a callback attempting a second withdrawal sees that the attacker has zero shares and cannot redeem them again.
 
 ### Evidence the tests can fail
 
-The vulnerable implementation reproduces the drain in:
+When the four state updates in `Pool.removeLiquidity()` were moved below the two token transfers, **two tests failed:**
 
-`test_ReentrantWithdrawalDrainsPool()`
+- `test_NaiveReentrancyReverts()`
+- `test_SwallowedReentrancyGainsNothing()`
 
-The corrected implementation passes two distinct attacker-strategy tests:
-
-- `test_NaiveReentrancyReverts()` — the attacker lets the nested `InsufficientShares(0, 1000)` revert bubble up. This rolls back the entire outer transaction, including the callback's state changes.
-- `test_SwallowedReentrancyGainsNothing()` — the attacker catches the nested revert, allowing the legitimate outer withdrawal to complete. The attacker receives only 1,000 of each token, and the honest LP successfully withdraws 900 of each.
-
-The vulnerable state-update ordering caused both `test_NaiveReentrancyReverts()` and `test_SwallowedReentrancyGainsNothing()` to fail during the M4 mutation experiment.
-
-The original invariant handler used ordinary tokens and did not exercise a hostile transfer callback. After a `HookToken` and reentrant attacker were added, the share-accounting invariant detected the tested M4 violation; the full mutation history is documented in the Level 4 scoreboard.
+The first attacker lets the nested revert bubble up and roll back the entire transaction. The second catches the nested revert and allows the legitimate outer withdrawal to finish.
 
 ### Residual risk
 
-The reproduction uses a recipient-side callback when token0 transfers to the attacker contract. It does not test sender-side token hooks during `transferFrom`, read-only reentrancy, re-entry into `swap()`, or re-entry into `addLiquidity()`.
+The reproduction covers a recipient-side callback during token0 transfer. It does not test sender-side hooks during `transferFrom`, read-only reentrancy, or re-entry into `swap()` or `addLiquidity()`.
 
-The tests establish the checks-effects-interactions protection for the exercised withdrawal path. They do not establish that every possible callback-capable token or external-call path is safe.
+Real-world context: Tokenlon described the April 18, 2020 imBTC/Uniswap reentrancy incident and the subsequent Lendf.Me incident involving ERC-777 hooks in its [incident notice](https://support.tokenlon.im/hc/en-us/articles/360042172392-imBTC-fully-restored-transfer-trading-and-redeem). dForce's [April 2020 update](https://medium.com/dforcenet/dforce-ecosystem-update-april-2020-f2f620cfe5ed) describes how the callback mechanism enabled repeated supply and withdrawal before balances were updated. These incidents support the relevance of callback-aware integration testing, although their exact callback paths are not identical to this project's recipient-side proof of concept.
 
+The tested CEI ordering mitigates this demonstrated withdrawal path; it does not establish that every external-call path is protected.
+
+---
+
+## F-04 — Swap output rounded up
+
+| Field | Value |
+|---|---|
+| Severity | Medium (self-assessed) |
+| Status | Mitigated in main implementation |
+| Impact | High in the constructed test: the pool's constant product falls by 9.991%, while the attacker gains 99,640 token1 |
+| Likelihood | Low — requires repeated dust-sized swaps and a rounding-up implementation; real transaction costs may outweigh the simulated profit |
+| Vulnerable implementation | `src/vulnerable/PoolRoundUp.sol` |
+| Mitigation | Floor division in `Pool.getAmountOut()` and rejection of zero output with `ZeroOutput` |
+| Demonstration | `test_DustSwapsDrainPoolWhenOutputRoundsUp()` in `RoundingAttackTest` |
+| Fix verification | `test_RealPoolRejectsDustAndPunishesRoundTrips()`, `testFuzz_KNeverDecreases()` |
+| Invariant property | `invariant_SwapsNeverLowerK()` |
+| Reproduce | `forge test --match-path test/RoundingAttack.t.sol -vvv` |
+
+### What happens
+
+The pool starts with reserves of 1,000 token0 and 1,000,000 token1. The attacker repeatedly sends one token1 unit, whose mathematically calculated token0 output is less than one whole unit. The vulnerable implementation rounds that fraction upward and transfers one token0 for every one-unit input. After 100 swaps, the attacker accumulates 100 token0 while spending 100 token1, reducing the pool's reserves to 900 token0 and 1,000,100 token1. The attacker then sells the accumulated token0 back into the pool for 99,740 token1, ending with a net gain of 99,640 token1.
+
+### One-unit rounding calculation
+
+For one token1 input against the initial reserves:
+
+`amountInWithFee = 1 * 997 = 997`
+
+`numerator = 997 * 1,000 = 997,000`
+
+`denominator = 1,000,000 * 1,000 + 997 = 1,000,000,997`
+
+Therefore:
+
+`exact output = 997,000 / 1,000,000,997 ≈ 0.000996999`
+
+| Rounding method | Token0 output |
+|---|---:|
+| Floor | 0 |
+| Ceiling | 1 |
+
+The difference between zero and one whole token is the core of the attack.
+
+### Demonstrated impact
+
+`test_DustSwapsDrainPoolWhenOutputRoundsUp()` asserts:
+
+| Measurement | Result |
+|---|---:|
+| Dust swaps | 100 |
+| Attacker token1 expenditure | 100 |
+| Token0 accumulated | 100 |
+| Initial constant product | 1,000,000,000 |
+| Constant product after dust swaps | 900,090,000 |
+| Constant-product reduction | 99,910,000 (9.991%) |
+| Sell-back output | 99,740 token1 |
+| Attacker final token1 balance | 100,640 |
+| Attacker net token1 profit | **99,640** |
+
+The pool's constant product is therefore reduced from 1,000,000,000 to 900,090,000 during the dust-swap phase.
+
+### What the fix does
+
+The vulnerable `PoolRoundUp.getAmountOut()` uses ceiling division:
+
+`(numerator + denominator - 1) / denominator`
+
+The main `Pool.getAmountOut()` uses ordinary integer floor division:
+
+`amountOut = (amountInWithFee * reserveOut) / denominator`
+
+This rounds the output down in favour of the pool. When the resulting output is zero, `swap()` rejects the transaction with `ZeroOutput`.
+
+The main implementation also preserves the constant-product property during swaps.
+
+### Evidence the tests can fail
+
+The dedicated rounding demonstration passed against the vulnerable variant:
+
+- `test_DustSwapsDrainPoolWhenOutputRoundsUp()`
+
+The corrected-pool comparison also passed:
+
+- `test_RealPoolRejectsDustAndPunishesRoundTrips()`
+
+In the earlier whole-suite ceiling-rounding mutation measurement, **14 ordinary tests failed:**
+
+- `test_SmallTrade`
+- `test_RealPoolRejectsDustAndPunishesRoundTrips`
+- `test_RemoveThatRoundsToZeroReverts`
+- `test_SwapAppliesFee`
+- `test_BigTrade`
+- `test_SwapToken1ForToken0`
+- `test_RemoveAfterSwapEarnsFees`
+- `testFuzz_KNeverDecreases`
+- `test_DepositThatRoundsToZeroSharesReverts`
+- `test_SwapMatchesHandTrace`
+- `testFuzz_SwapSequenceKeepsInvariants`
+- `testFuzz_SwapKeepsInvariants`
+- `test_SwapRejectsZeroOutput`
+- `test_SwapRevertsBelowMinAmountOut`
+
+The broken property is that a swap must not decrease the constant product:
+
+`K_after >= K_before`
+
+The unit/fuzz suite checks this through `testFuzz_KNeverDecreases()`. The invariant suite also checks it through `invariant_SwapsNeverLowerK()`, which detected the earlier ceiling-rounding mutation on all three recorded seeds.
+
+### Real-pool round-trip comparison
+
+In `test_RealPoolRejectsDustAndPunishesRoundTrips()`, a one-unit token1 input produces zero token0 output and is rejected with `Pool.ZeroOutput`.
+
+The attacker then performs a larger round trip:
+
+1. Swaps 2,000 token1 and receives 1 token0.
+2. Swaps that 1 token0 back and receives 998 token1.
+
+The attacker starts this round trip with 2,000 token1 and finishes with 998 token1, losing **1,002 token1**.
+
+This loss is expected AMM behaviour: the attacker pays the swap fee in both directions and suffers price impact and integer floor rounding. The real pool rejects the dust extraction and does not give away one whole token0 for a fractional output.
+
+### Residual risk
+
+The demonstration does not model real-chain gas costs, transaction fees, competition, or execution constraints. The 100 dust swaps are calls inside a local Foundry test, not an economic simulation of 100 separately submitted mainnet transactions.
+
+Consequently, the measured 99,640 token1 profit is a contract-level test result, not proof that the attack would remain profitable on a live chain. Whether the profit exceeds transaction costs under a specific network, token valuation and execution environment has not been established.
+
+---
+
+The findings document describes deliberately reproduced behaviours in educational implementations and the mitigations tested in the main pool. It is not an independent security assessment or a guarantee against unknown vulnerabilities.
