@@ -50,8 +50,6 @@ contract PoolInvariantTest is Test {
             accountedShares += pool.shares(handler.actors(i));
         }
         accountedShares += pool.shares(address(handler.attacker()));
-        // Diagnostic step: intentionally not counting handler.attacker()
-        // yet, so the next run exposes the missing share-accounting entry.
         assertEq(accountedShares, pool.totalShares());
     }
 

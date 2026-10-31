@@ -270,6 +270,13 @@ contract PoolTest is Test {
         assertEq(pool.reserve1(), 0);
     }
 
+    function test_FirstDepositAtMinimumLiquidityBoundaryReverts() public {
+        vm.expectRevert(Pool.ZeroShares.selector);
+
+        vm.prank(lp);
+        pool.addLiquidity(100, 100, 0);
+    }
+
     function test_DepositThatRoundsToZeroSharesReverts() public {
         _seedPool(1_000, 1_000);
 
