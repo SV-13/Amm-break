@@ -318,38 +318,57 @@ This rounds the output down in favour of the pool. When the resulting output is 
 
 The main implementation also preserves the constant-product property during swaps.
 
-### Evidence the tests can fail
+### Evidence from an isolated mutation
 
-The dedicated rounding demonstration passed against the vulnerable variant:
+To test whether the regression suite detects this specific fault, only the
+output calculation in `Pool.getAmountOut()` was temporarily changed from
+floor division to ceiling division:
 
-- `test_DustSwapsDrainPoolWhenOutputRoundsUp()`
+`(numerator + denominator - 1) / denominator`
 
-The corrected-pool comparison also passed:
+The remaining pool logic was left unchanged.
 
-- `test_RealPoolRejectsDustAndPunishesRoundTrips()`
+Running `forge test` produced:
 
-In the earlier whole-suite ceiling-rounding mutation measurement, **14 ordinary tests failed:**
+| Result | Count |
+|---|---:|
+| Ordinary test methods passed | 40 |
+| Ordinary test methods failed | 14 |
+| Total ordinary test methods | 54 |
+| Invariant properties failed | 1 of 5 |
 
-- `test_SmallTrade`
-- `test_RealPoolRejectsDustAndPunishesRoundTrips`
-- `test_RemoveThatRoundsToZeroReverts`
-- `test_SwapAppliesFee`
-- `test_BigTrade`
-- `test_SwapToken1ForToken0`
-- `test_RemoveAfterSwapEarnsFees`
+The 14 failing ordinary test methods were:
+
 - `testFuzz_KNeverDecreases`
-- `test_DepositThatRoundsToZeroSharesReverts`
-- `test_SwapMatchesHandTrace`
-- `testFuzz_SwapSequenceKeepsInvariants`
 - `testFuzz_SwapKeepsInvariants`
+- `testFuzz_SwapSequenceKeepsInvariants`
+- `test_BigTrade`
+- `test_DepositThatRoundsToZeroSharesReverts`
+- `test_RemoveAfterSwapEarnsFees`
+- `test_RemoveThatRoundsToZeroReverts`
+- `test_SmallTrade`
+- `test_SwapAppliesFee`
+- `test_SwapMatchesHandTrace`
 - `test_SwapRejectsZeroOutput`
 - `test_SwapRevertsBelowMinAmountOut`
+- `test_SwapToken1ForToken0`
+- `test_RealPoolRejectsDustAndPunishesRoundTrips`
 
-The broken property is that a swap must not decrease the constant product:
+Two names need clarification. `test_DepositThatRoundsToZeroSharesReverts()`
+and `test_RemoveThatRoundsToZeroReverts()` both failed at reserve assertions
+immediately after their setup swaps. Their expected token1 reserves were
+668 and 168 respectively; ceiling rounding changed those values to 667
+and 167. Neither test reached its intended deposit or withdrawal operation.
 
-`K_after >= K_before`
+The invariant suite also detected the mutation:
+`invariant_SwapsNeverLowerK()` failed, while the other four invariant
+properties passed. The run executed 256 invariant runs and 12,800 calls
+with zero reverts. The shrunk failing sequence was:
 
-The unit/fuzz suite checks this through `testFuzz_KNeverDecreases()`. The invariant suite also checks it through `invariant_SwapsNeverLowerK()`, which detected the earlier ceiling-rounding mutation on all three recorded seeds.
+`swap(13483, false, 0)`
+
+After the experiment, the original floor-division implementation was
+restored. `git status --short` was empty.
 
 ### Real-pool round-trip comparison
 
