@@ -275,6 +275,22 @@ contract PoolTest is Test {
 
         vm.prank(lp);
         pool.addLiquidity(100, 100, 0);
+
+        assertEq(pool.totalShares(), 0);
+        assertEq(pool.reserve0(), 0);
+        assertEq(pool.reserve1(), 0);
+    }
+
+    function test_FirstDepositJustAboveMinimumLiquidityBoundaryMintsOneShare() public {
+        vm.prank(lp);
+        uint256 minted = pool.addLiquidity(101, 101, 0);
+
+        assertEq(minted, 1);
+        assertEq(pool.shares(lp), 1);
+        assertEq(pool.totalShares(), 101);
+
+        assertEq(pool.reserve0(), 101);
+        assertEq(pool.reserve1(), 101);
     }
 
     function test_DepositThatRoundsToZeroSharesReverts() public {
