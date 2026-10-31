@@ -374,14 +374,38 @@ restored. `git status --short` was empty.
 
 In `test_RealPoolRejectsDustAndPunishesRoundTrips()`, a one-unit token1 input produces zero token0 output and is rejected with `Pool.ZeroOutput`.
 
-The attacker then performs a larger round trip:
+The attacker then performs a larger round trip, starting with 2,000 token1 against reserves of 1,000 token0 and 1,000,000 token1.
 
-1. Swaps 2,000 token1 and receives 1 token0.
-2. Swaps that 1 token0 back and receives 998 token1.
+**First leg: token1 to token0**
 
-The attacker starts this round trip with 2,000 token1 and finishes with 998 token1, losing **1,002 token1**.
+The fee-adjusted input is 1,994,000. The exact output is:
 
-This loss is expected AMM behaviour: the attacker pays the swap fee in both directions and suffers price impact and integer floor rounding. The real pool rejects the dust extraction and does not give away one whole token0 for a fractional output.
+`1,994,000,000 / 1,001,994,000 ≈ 1.990031876 token0`
+
+The pool uses floor division and transfers only 1 token0.
+
+After this swap, the reserves are 999 token0 and 1,002,000 token1.
+
+**Second leg: token0 back to token1**
+
+For the actual input of 1 token0, the exact output is:
+
+`998,994,000 / 999,997 ≈ 998.996996991 token1`
+
+Floor division transfers 998 token1.
+
+The attacker therefore starts with 2,000 token1 and finishes with 998 token1, losing **1,002 token1**.
+
+**Decomposing the loss**
+
+With both swap outputs calculated without integer truncation, while retaining the 0.3% fee on each leg, the round trip returns approximately 1,988.041773170 token1. The resulting fee-related loss is approximately 11.958226830 token1.
+
+The additional loss caused by floor rounding consists of:
+
+- Approximately 989.044776179 token1 equivalent from rounding the first-leg output down from 1.990031876 to 1 token0.
+- Approximately 0.996996991 token1 from rounding the second-leg output down from 998.996996991 to 998.
+
+These components sum to the actual 1,002 token1 loss. This decomposition is specific to the tested reserves and trade sizes; it distinguishes the two swap fees from the value retained through integer output truncation.
 
 ### Residual risk
 
