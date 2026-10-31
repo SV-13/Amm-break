@@ -255,7 +255,7 @@ The tested CEI ordering mitigates this demonstrated withdrawal path; it does not
 | Impact | High — in the 900-swap test, the attacker gains 899,640 token1 and reduces the token1 reserve from 1,000,000 to 100,360 (89.964%) after selling back the accumulated token0 |
 | Likelihood | Low — requires a highly skewed initial reserve ratio (1,000 token0 to 1,000,000 token1), repeated one-unit inputs and ceiling-rounded output. Live execution costs are not modelled. |
 | Vulnerable implementation | `src/vulnerable/PoolRoundUp.sol` |
-| Mitigation | Floor division in `Pool.getAmountOut()` and rejection of zero output with `ZeroOutput` |
+| Mitigation | Floor division in `Pool.getAmountOut()`; `ZeroOutput` separately rejects swaps that calculate to zero output |
 | Demonstration | `test_DustSwapsDrainPoolWhenOutputRoundsUp()` in `RoundingAttackTest` |
 | Fix verification | `test_RealPoolRejectsDustAndPunishesRoundTrips()`, `testFuzz_KNeverDecreases()` |
 | Invariant property | `invariant_SwapsNeverLowerK()` |
@@ -316,9 +316,11 @@ The main `Pool.getAmountOut()` uses ordinary integer floor division:
 
 `amountOut = (amountInWithFee * reserveOut) / denominator`
 
-This rounds the output down in favour of the pool. When the resulting output is zero, `swap()` rejects the transaction with `ZeroOutput`.
+Floor division prevents a fractional output from being rounded up to a whole token. This is the mitigation for the demonstrated extraction attack.
 
-The main implementation also preserves the constant-product property during swaps.
+The separate `ZeroOutput` check rejects a swap when floor division produces no output. Without this check, a zero-output swap can still collect the trader's input while transferring nothing back. The temporary test `test_WithoutZeroOutputGuardTraderLosesInput()` demonstrated this behaviour: a one-unit token1 input was retained by the pool, and the trader received zero token0.
+
+The main implementation's swap arithmetic is intended to ensure that the constant product never decreases due to a swap. This property is checked by `testFuzz_KNeverDecreases()` and `invariant_SwapsNeverLowerK()`.
 
 ### Evidence from an isolated mutation
 
