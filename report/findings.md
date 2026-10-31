@@ -252,8 +252,8 @@ The tested CEI ordering mitigates this demonstrated withdrawal path; it does not
 |---|---|
 | Severity | Medium (self-assessed) |
 | Status | Mitigated in main implementation |
-| Impact | High in the constructed test: the pool's constant product falls by 9.991%, while the attacker gains 99,640 token1 |
-| Likelihood | Low — requires repeated dust-sized swaps and a rounding-up implementation; real transaction costs may outweigh the simulated profit |
+| Impact | High — in the 900-swap test, the attacker gains 899,640 token1 and reduces the token1 reserve from 1,000,000 to 100,360 (89.964%) after selling back the accumulated token0 |
+| Likelihood | Low — requires a highly skewed initial reserve ratio (1,000 token0 to 1,000,000 token1), repeated one-unit inputs and ceiling-rounded output. Live execution costs are not modelled. |
 | Vulnerable implementation | `src/vulnerable/PoolRoundUp.sol` |
 | Mitigation | Floor division in `Pool.getAmountOut()` and rejection of zero output with `ZeroOutput` |
 | Demonstration | `test_DustSwapsDrainPoolWhenOutputRoundsUp()` in `RoundingAttackTest` |
@@ -288,21 +288,23 @@ The difference between zero and one whole token is the core of the attack.
 
 ### Demonstrated impact
 
-`test_DustSwapsDrainPoolWhenOutputRoundsUp()` asserts:
+The two vulnerable-pool tests assert the following results. Both use initial reserves of 1,000 token0 and 1,000,000 token1, and the attacker starts with 1,000 token1.
 
-| Measurement | Result |
-|---|---:|
-| Dust swaps | 100 |
-| Attacker token1 expenditure | 100 |
-| Token0 accumulated | 100 |
-| Initial constant product | 1,000,000,000 |
-| Constant product after dust swaps | 900,090,000 |
-| Constant-product reduction | 99,910,000 (9.991%) |
-| Sell-back output | 99,740 token1 |
-| Attacker final token1 balance | 100,640 |
-| Attacker net token1 profit | **99,640** |
+| Measurement | 100-swap test | 900-swap test |
+|---|---:|---:|
+| Dust swaps | 100 | 900 |
+| Attacker token1 expenditure | 100 | 900 |
+| Token0 accumulated | 100 | 900 |
+| Reserves after dust swaps (token0 / token1) | 900 / 1,000,100 | 100 / 1,000,900 |
+| Sell-back output | 99,740 | 900,540 |
+| Final reserves (token0 / token1) | 1,000 / 900,360 | 1,000 / 100,360 |
+| Final attacker token1 balance | 100,640 | 900,640 |
+| Attacker net token1 profit | **99,640** | **899,640** |
+| Initial constant product | 1,000,000,000 | 1,000,000,000 |
+| Final constant product | 900,360,000 | 100,360,000 |
+| Constant-product reduction | 99,640,000 (9.964%) | 899,640,000 (89.964%) |
 
-The pool's constant product is therefore reduced from 1,000,000,000 to 900,090,000 during the dust-swap phase.
+The constant-product measurements above are final-state measurements after the attacker sells the accumulated token0 back into the pool. The 900-swap test demonstrates that the loss scales with repeated dust swaps under the same highly skewed initial reserve ratio.
 
 ### What the fix does
 
