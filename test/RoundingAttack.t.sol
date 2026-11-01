@@ -134,18 +134,25 @@ contract RoundingAttackTest is Test {
         assertEq(token0.balanceOf(address(roundUpPool)), roundUpPool.reserve0());
         assertEq(token1.balanceOf(address(roundUpPool)), roundUpPool.reserve1());
     }
-    
+
     function test_DustSwapsDoNotProfitInBalancedPoolWhenOutputRoundsUp() public {
-    // Control: same attack, but one token0 is worth about one token1.
-    token0.mint(lp, 999_000);
-    vm.prank(lp);
-    roundUpPool.addLiquidity(1_000_000, 1_000_000, 0);
+        // Control: same attack, but one token0 is worth about one token1.
+        token0.mint(lp, 999_000);
+        vm.prank(lp);
+        roundUpPool.addLiquidity(1_000_000, 1_000_000, 0);
 
-    uint256 attackerToken1Start = token1.balanceOf(attacker);
+        uint256 attackerToken1Start = token1.balanceOf(attacker);
 
-    for (uint256 i = 0; i < 100; i++) {
+        for (uint256 i = 0; i < 100; i++) {
+            vm.prank(attacker);
+            roundUpPool.swap(token1, 1, 0);
+        }
+
         vm.prank(attacker);
-        roundUpPool.swap(token1, 1, 0);
+        uint256 token1Received = roundUpPool.swap(token0, 100, 0);
+
+        assertEq(token1Received, 100);
+        assertEq(token1.balanceOf(attacker), attackerToken1Start);
     }
 
     vm.prank(attacker);
