@@ -308,6 +308,8 @@ The two vulnerable-pool tests assert the following results. Both use initial res
 
 The constant-product measurements above are final-state measurements after the attacker sells the accumulated token0 back into the pool. The 900-swap test demonstrates that the loss scales with repeated dust swaps under the same highly skewed initial reserve ratio.
 
+Control: with balanced reserves of 1,000,000 / 1,000,000, the same 100 dust swaps and sell-back return exactly the 100 token1 spent (`test_DustSwapsDoNotProfitInBalancedPoolWhenOutputRoundsUp()`), so the profit above comes from the skewed price, where one token0 is worth about 1,000 token1.
+
 ### What the fix does
 
 The vulnerable `PoolRoundUp.getAmountOut()` uses ceiling division:
