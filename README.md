@@ -16,7 +16,7 @@ A constant-product AMM in Solidity (Foundry), built and then attacked: four atta
 Requires [Foundry](https://book.getfoundry.sh/getting-started/installation) and git. Developed with forge 1.8.6; contracts use `pragma solidity ^0.8.20`.
 
 ```bash
-git clone --recurse-submodules <repo-url>
+git clone --recurse-submodules https://github.com/SV-13/Amm-break.git
 cd amm-break
 forge build
 forge test
