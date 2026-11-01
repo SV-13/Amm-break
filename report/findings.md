@@ -258,7 +258,8 @@ The tested CEI ordering mitigates this demonstrated withdrawal path; it does not
 | Likelihood | Low — requires a highly skewed initial reserve ratio (1,000 token0 to 1,000,000 token1), repeated one-unit inputs and ceiling-rounded output. Live execution costs are not modelled. |
 | Vulnerable implementation | `src/vulnerable/PoolRoundUp.sol` |
 | Mitigation | Floor division in `Pool.getAmountOut()`; `ZeroOutput` separately rejects swaps that calculate to zero output |
-| Demonstration | `test_DustSwapsDrainPoolWhenOutputRoundsUp()` in `RoundingAttackTest` |
+| Demonstration | `test_DustSwapsDrainPoolWhenOutputRoundsUp()` (100 swaps) and `test_DustSwapAttackScalesWithSkewedReserves()` (900 swaps) in `RoundingAttackTest` |
+| Control | `test_DustSwapsDoNotProfitInBalancedPoolWhenOutputRoundsUp()` in `RoundingAttackTest` |
 | Fix verification | `test_RealPoolRejectsDustAndPunishesRoundTrips()`, `testFuzz_KNeverDecreases()` |
 | Invariant property | `invariant_SwapsNeverLowerK()` |
 | Reproduce | `forge test --match-path test/RoundingAttack.t.sol -vvv` |
@@ -413,6 +414,8 @@ These components sum to the actual 1,002 token1 loss. This decomposition is spec
 The demonstration does not model real-chain gas costs, transaction fees, competition, or execution constraints. The dust swaps are calls inside local Foundry tests, not an economic simulation of 100 or 900 separately submitted mainnet transactions.
 
 Consequently, the measured profits (99,640 token1 in the 100-swap test and 899,640 token1 in the 900-swap test) are contract-level test results, not proof that the attack would remain profitable on a live chain. Whether the profit exceeds transaction costs under a specific network, token valuation and execution environment has not been established.
+
+For scale, the 900-swap test consumes about 72 million gas in total, including pool seeding. This report makes no claim about whether that cost would be covered by the profit.
 
 ---
 
