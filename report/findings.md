@@ -207,7 +207,7 @@ The caller must therefore use a meaningful minimum derived from a trustworthy pr
 
 ### What happens
 
-The vulnerable `PoolReentrant.removeLiquidity()` calculates the attacker's withdrawal and calls `token0.transfer()` before updating accounting. The callback-enabled `HookToken` invokes the attacker's `onTokenReceived()` function during that transfer. The attacker re-enters `removeLiquidity(1000)` while its original 1,000 shares and the pool's 2,000/2,000 reserves are still recorded. The nested withdrawal therefore pays out a second 1,000 of each token before the outer call applies its own state updates.
+The vulnerable `PoolReentrant.removeLiquidity()` calculates the attacker's withdrawal and calls `token0.transfer()` before updating accounting. The callback-enabled `HookToken` invokes the attacker's `onTokenReceived()` function during that transfer. The attacker re-enters `removeLiquidity(1000)` while its original 1,000 shares and the pool's 2,000/2,000 reserves are still recorded. The nested withdrawal therefore pays out a second 1,000 of each token before the outer call applies its own state updates. When the outer call resumes, it writes `shares[msg.sender] = providerShares - sharesToBurn` from a value it read before the transfers, so the shares mapping does not underflow, while `totalShares` and both reserves are decremented a second time.
 
 ### Demonstrated impact
 
