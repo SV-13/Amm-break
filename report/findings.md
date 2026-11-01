@@ -42,7 +42,7 @@ The ratings below are project assessments, not formal audit ratings.
 |---|---|
 | Severity | High (self-assessed) |
 | Status | Partially mitigated (see F-02) |
-| Impact | High — a liquidity provider can lose substantial amounts of deposited assets |
+| Impact | High — in the demonstrated attack, the victim loses 3,332 of 10,000 token0 (33.32%) and 8,332 of 10,000 token1 (83.32%) |
 | Likelihood | Medium — requires control of initial pool creation and a subsequent victim deposit |
 | Vulnerable implementation | `src/vulnerable/PoolNoLock.sol` |
 | Additional comparison | Locked pool without `minShares` protection |
@@ -262,6 +262,7 @@ The tested CEI ordering mitigates this demonstrated withdrawal path; it does not
 | Fix verification | `test_RealPoolRejectsDustAndPunishesRoundTrips()`, `testFuzz_KNeverDecreases()` |
 | Invariant property | `invariant_SwapsNeverLowerK()` |
 | Reproduce | `forge test --match-path test/RoundingAttack.t.sol -vvv` |
+| Reproduce (regression) | `forge test --match-test testFuzz_KNeverDecreases` and `forge test --match-test invariant_SwapsNeverLowerK` |
 
 ### What happens
 
@@ -330,9 +331,7 @@ The main implementation's swap arithmetic is intended to ensure that the constan
 
 ### Evidence from an isolated mutation
 
-To test whether the regression suite detects this specific fault, only the
-output calculation in `Pool.getAmountOut()` was temporarily changed from
-floor division to ceiling division:
+To test whether the regression suite detects this specific fault, only the output calculation in `Pool.getAmountOut()` was temporarily changed from floor division to ceiling division:
 
 `(numerator + denominator - 1) / denominator`
 
@@ -342,12 +341,12 @@ Running `forge test` produced:
 
 | Result | Count |
 |---|---:|
-| Ordinary test methods passed | 40 |
-| Ordinary test methods failed | 14 |
-| Total ordinary test methods | 54 |
+| Unit and fuzz tests passed | 40 |
+| Unit and fuzz tests failed | 14 |
+| Total unit and fuzz tests | 54 |
 | Invariant properties failed | 1 of 5 |
 
-The 14 failing ordinary test methods were:
+The 14 failing unit and fuzz tests were:
 
 - `testFuzz_KNeverDecreases`
 - `testFuzz_SwapKeepsInvariants`
@@ -364,21 +363,13 @@ The 14 failing ordinary test methods were:
 - `test_SwapToken1ForToken0`
 - `test_RealPoolRejectsDustAndPunishesRoundTrips`
 
-Two names need clarification. `test_DepositThatRoundsToZeroSharesReverts()`
-and `test_RemoveThatRoundsToZeroReverts()` both failed at reserve assertions
-immediately after their setup swaps. Their expected token1 reserves were
-668 and 168 respectively; ceiling rounding changed those values to 667
-and 167. Neither test reached its intended deposit or withdrawal operation.
+Two names need clarification. `test_DepositThatRoundsToZeroSharesReverts()` and `test_RemoveThatRoundsToZeroReverts()` both failed at reserve assertions immediately after their setup swaps. Their expected token1 reserves were 668 and 168 respectively; ceiling rounding changed those values to 667 and 167. Neither test reached its intended deposit or withdrawal operation.
 
-The invariant suite also detected the mutation:
-`invariant_SwapsNeverLowerK()` failed, while the other four invariant
-properties passed. The run executed 256 invariant runs and 12,800 calls
-with zero reverts. The shrunk failing sequence was:
+The invariant suite also detected the mutation: `invariant_SwapsNeverLowerK()` failed, while the other four invariant properties passed. The run executed 256 invariant runs and 12,800 calls with zero reverts. The shrunk failing sequence was:
 
 `swap(13483, false, 0)`
 
-After the experiment, the original floor-division implementation was
-restored. `git status --short` was empty.
+After the experiment, the original floor-division implementation was restored. `git status --short` was empty.
 
 ### Real-pool round-trip comparison
 
