@@ -58,7 +58,7 @@ report/
 Design points:
 
 - Constant product with a 0.3% fee taken from the input (997/1000). Integer division rounds in the pool's favour.
-- The first deposit mints `sqrt(amount0 * amount1)` shares minus 100, which are locked permanently (`MINIMUM_LIQUIDITY`). Later deposits mint the smaller of the two proportional amounts. Shares are not transferable.
+- The first deposit creates `sqrt(amount0 * amount1)` shares. 100 of them (`MINIMUM_LIQUIDITY`) are locked permanently and the depositor receives the rest. Later deposits mint the smaller of the two proportional amounts. Shares are not transferable.
 - Reserves are stored in the contract and never read from `balanceOf`.
 - State is updated before token transfers in `addLiquidity`, `removeLiquidity` and `swap`.
 
@@ -78,7 +78,7 @@ Details, test names and reproduce commands are in [report/findings.md](report/fi
 [report/testing.md](report/testing.md) describes the unit, fuzz and invariant layers and a mutation experiment against them. Headlines:
 
 - Six known faults were all detected after the invariant harness was improved, but that harness was tuned using those same faults, so the result is not evidence about unseen faults.
-- On four held-out faults, unit/fuzz tests detected two, the invariants detected one, and the two layers together detected three. One fault escaped both until a boundary test was added.
+- On four further faults chosen after the tests were written (so not a neutral benchmark), unit/fuzz tests detected two, the invariants detected one, and the two layers together detected three. One fault escaped both until a boundary test was added.
 - The invariant handler has structural blind spots (for example, it always passes `minAmountOut = 0`), which the report lists.
 
 ## Reproduce the demonstrations
@@ -96,6 +96,7 @@ Details, test names and reproduce commands are in [report/findings.md](report/fi
 
 - The reproduced attacks run in local Foundry tests against intentionally vulnerable variants. They are not claims about any deployed protocol, and gas costs and economic viability are not modelled.
 - The pool is written against this repository's `Token` type rather than a generic ERC-20 interface, does not use safe-transfer wrappers, and does not handle fee-on-transfer or rebasing tokens.
+- `forge build` prints Foundry lint warnings: unchecked ERC-20 return values and events emitted after external calls throughout `src/`, and `reentrancy-no-eth` in `src/vulnerable/PoolReentrant.sol`, which is the intentional fault. The unchecked return values follow from the missing safe-transfer wrappers noted above; the event-ordering warnings are not addressed.
 - Not covered: multi-hop routing, price oracles, admin or governance functions, flash loans, transferable LP tokens.
 - Reentrancy coverage is limited to a recipient-side token hook during `removeLiquidity`. Sender-side hooks, read-only reentrancy and re-entry into `swap` or `addLiquidity` are not tested.
 - Test results are evidence about this suite and these faults, not a proof of correctness.
