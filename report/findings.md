@@ -320,7 +320,9 @@ The main `Pool.getAmountOut()` uses ordinary integer floor division:
 
 Floor division prevents a fractional output from being rounded up to a whole token. This is the mitigation for the demonstrated extraction attack.
 
-The separate `ZeroOutput` check rejects a swap when floor division produces no output. Without this check, a zero-output swap can still collect the trader's input while transferring nothing back. The temporary test `test_WithoutZeroOutputGuardTraderLosesInput()` demonstrated this behaviour: a one-unit token1 input was retained by the pool, and the trader received zero token0.
+The separate `ZeroOutput` check rejects a swap when floor division produces no output.
+
+Without this check, a swap whose floor-divided output is zero would still collect the trader's input and transfer nothing back: the pool would keep one token1 and the trader would receive zero token0. This was confirmed in a temporary local experiment that is not part of the repository.
 
 The main implementation's swap arithmetic is intended to ensure that the constant product never decreases due to a swap. This property is checked by `testFuzz_KNeverDecreases()` and `invariant_SwapsNeverLowerK()`.
 
