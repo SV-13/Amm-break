@@ -265,7 +265,7 @@ The tested CEI ordering mitigates this demonstrated withdrawal path; it does not
 
 ### What happens
 
-The pool starts with reserves of 1,000 token0 and 1,000,000 token1. The attacker repeatedly sends one token1 unit, whose mathematically calculated token0 output is less than one whole unit. The vulnerable implementation rounds that fraction upward and transfers one token0 for every one-unit input. After 100 swaps, the attacker accumulates 100 token0 while spending 100 token1, reducing the pool's reserves to 900 token0 and 1,000,100 token1. The attacker then sells the accumulated token0 back into the pool for 99,740 token1, ending with a net gain of 99,640 token1.
+The pool starts with reserves of 1,000 token0 and 1,000,000 token1. The attacker repeatedly sends one token1 unit, whose mathematically calculated token0 output is less than one whole unit. The vulnerable implementation rounds that fraction upward and transfers one token0 for every one-unit input. After 100 swaps, the attacker accumulates 100 token0 while spending 100 token1, reducing the pool's reserves to 900 token0 and 1,000,100 token1. The attacker then sells the accumulated token0 back into the pool for 99,740 token1, ending with a net gain of 99,640 token1. The same loop with 900 swaps yields a net gain of 899,640 token1 (see Demonstrated impact).
 
 ### One-unit rounding calculation
 
@@ -417,9 +417,9 @@ These components sum to the actual 1,002 token1 loss. This decomposition is spec
 
 ### Residual risk
 
-The demonstration does not model real-chain gas costs, transaction fees, competition, or execution constraints. The 100 dust swaps are calls inside a local Foundry test, not an economic simulation of 100 separately submitted mainnet transactions.
+The demonstration does not model real-chain gas costs, transaction fees, competition, or execution constraints. The dust swaps are calls inside local Foundry tests, not an economic simulation of 100 or 900 separately submitted mainnet transactions.
 
-Consequently, the measured 99,640 token1 profit is a contract-level test result, not proof that the attack would remain profitable on a live chain. Whether the profit exceeds transaction costs under a specific network, token valuation and execution environment has not been established.
+Consequently, the measured profits (99,640 token1 in the 100-swap test and 899,640 token1 in the 900-swap test) are contract-level test results, not proof that the attack would remain profitable on a live chain. Whether the profit exceeds transaction costs under a specific network, token valuation and execution environment has not been established.
 
 ---
 
