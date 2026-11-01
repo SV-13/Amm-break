@@ -155,7 +155,6 @@ contract RoundingAttackTest is Test {
         assertEq(token1.balanceOf(attacker), attackerToken1Start);
     }
 
-
     function test_RealPoolRejectsDustAndPunishesRoundTrips() public {
         _seedRealPool();
 
